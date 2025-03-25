@@ -32,6 +32,7 @@ builder.Services.AddAuthentication(x =>
 		IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("veryveryscerete.....")),
 		ValidateAudience = false,
 		ValidateIssuer = false,
+		ClockSkew = TimeSpan.Zero,
 	};
 });
 builder.Services.AddCors(options =>

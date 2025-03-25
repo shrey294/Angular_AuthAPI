@@ -1,12 +1,15 @@
 ﻿using Angular_AuthAPI.Context;
 using Angular_AuthAPI.Helpers;
 using Angular_AuthAPI.Models;
+using Angular_AuthAPI.Models.DTO;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -41,9 +44,17 @@ namespace Angular_AuthAPI.Controllers
 					{
 						return BadRequest(new { Message = "Password is incorrect" });
 					}
-					user.Token = CreateJwttoken(User);
-
-					return Ok(new {Token=user.Token ,Message = "Login Success" });
+					User.Token = CreateJwttoken(User);
+					var newAccessToken = User.Token;
+					var newrefreshtoken = CreateRereshToken();
+					User.RefreshToken = newrefreshtoken;
+					User.expirytime = DateTime.Now.AddDays(5);
+					await _context.SaveChangesAsync();
+					return Ok(new TokenApiDto()
+					{
+						AccessToken = newAccessToken,
+						RefreshToken = newrefreshtoken
+					});
 
 				}
 			}
@@ -89,6 +100,34 @@ namespace Angular_AuthAPI.Controllers
 				return BadRequest(ex.Message);
 			}
 		}
+		[HttpPost("Refresh")]
+		public async Task<IActionResult> Refresh(TokenApiDto token)
+		{
+			if (token == null)
+			{
+				return BadRequest("Invalid Client");
+			}
+			string accesstoken = token.AccessToken;
+			string refreshtoken = token.RefreshToken;
+
+			var principal = GetPrincipalFromExpiredToken(accesstoken);
+			var username = principal.Identity.Name;
+			var user = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+			if (user == null || user.RefreshToken != refreshtoken || user.expirytime <= DateTime.Now)
+			{
+				return BadRequest("Invalid Request");
+			}
+			var newAccessToken = CreateJwttoken(user);
+			var RefreshToken = CreateRereshToken();
+			user.RefreshToken = RefreshToken;
+			await _context.SaveChangesAsync();
+			return Ok(new TokenApiDto
+			{
+				AccessToken = newAccessToken,
+				RefreshToken = RefreshToken,
+			});
+		}
+		[Authorize]
 		[HttpGet]
 		public async Task<ActionResult<User>> GetAllUsers()
 		{
@@ -134,18 +173,53 @@ namespace Angular_AuthAPI.Controllers
 			var identity = new ClaimsIdentity(new Claim[]
 			{
 				new Claim(ClaimTypes.Role, user.Role),
-				new Claim(ClaimTypes.Name,$"{user.FirstName} {user.LastName}")
+				new Claim(ClaimTypes.Name,$"{user.Username}")
 			});
 			var Credentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
 
 			var tokenDescriptor = new SecurityTokenDescriptor
 			{
 				Subject = identity,
-				Expires = DateTime.Now.AddDays(1),
+				Expires = DateTime.Now.AddSeconds(10),
 				SigningCredentials = Credentials,
 			};
 			var token = jwtTokenHandler.CreateToken(tokenDescriptor);
 			return jwtTokenHandler.WriteToken(token);
 		}
+		private string CreateRereshToken()
+		{
+			var tokenbytes = RandomNumberGenerator.GetBytes(64);
+			var refreshToken = Convert.ToBase64String(tokenbytes);
+
+			var tokeninuser = _context.Users.Any(a=>a.RefreshToken == refreshToken);
+			if (tokeninuser)
+			{
+				return CreateRereshToken();
+			}
+			return refreshToken;
+		}
+		private ClaimsPrincipal GetPrincipalFromExpiredToken(string token)
+		{
+			var key = Encoding.ASCII.GetBytes("veryveryscerete.....");
+			var tokenValidationParameters = new TokenValidationParameters
+			{
+				ValidateAudience = false,
+				ValidateIssuer = false,
+				ValidateIssuerSigningKey = true,
+				IssuerSigningKey = new SymmetricSecurityKey(key),
+				ValidateLifetime = false
+			};
+			var TokenHandler = new JwtSecurityTokenHandler();
+			SecurityToken securityToken;
+			var principal = TokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
+			var jwtSecurityToken = securityToken as JwtSecurityToken;
+			if(jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+			{
+				throw new SecurityTokenException("This is Invalid Token");
+			}
+			return principal;
+
+		}
+		
 	}
 }
