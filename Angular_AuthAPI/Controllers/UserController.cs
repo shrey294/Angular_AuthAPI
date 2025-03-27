@@ -157,22 +157,29 @@ namespace Angular_AuthAPI.Controllers
 		[HttpPost("Reset-password")]
 		public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
 		{
-			var newtoken = resetPasswordDTO.EmailToken.Replace("", "+");
-			var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(a=>a.Email == resetPasswordDTO.Email);
-			if (user == null)
+			try
 			{
-				return NotFound(new { StatusCode = 404, Message = "user Does not exists" });
+				var newtoken = resetPasswordDTO.EmailToken.Replace(" ", "+");
+				var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(a => a.Email == resetPasswordDTO.Email);
+				if (user == null)
+				{
+					return NotFound(new { StatusCode = 404, Message = "user Does not exists" });
+				}
+				var tokencode = user.ResentPasswordToken;
+				DateTime emailtokenexpiry = user.ResetPasswordExpiry;
+				if (tokencode != resetPasswordDTO.EmailToken || emailtokenexpiry < DateTime.Now)
+				{
+					return BadRequest(new { StatusCode = 400, Message = "Invalid Reset Link" });
+				}
+				user.Password = PasswordEncrypt.HashedPassword(resetPasswordDTO.NewPassword);
+				_context.Entry(user).State = EntityState.Modified;
+				await _context.SaveChangesAsync();
+				return Ok(new { StatusCode = 200, Message = "Password Reset Successfully" });
 			}
-			var tokencode = user.ResentPasswordToken;
-			DateTime emailtokenexpiry = user.ResetPasswordExpiry;
-			if(tokencode != resetPasswordDTO.EmailToken || emailtokenexpiry < DateTime.Now)
+			catch (Exception ex) 
 			{
-				return BadRequest(new {StatusCode=400,Message="Invalid Reset Link"});
+				return BadRequest(ex.Message);
 			}
-			user.Password = PasswordEncrypt.HashedPassword(resetPasswordDTO.NewPassword);
-			_context.Entry(user).State = EntityState.Modified;
-			await _context.SaveChangesAsync();
-			return Ok(new { StatusCode = 200, Message = "Password Reset Successfully" });
 		}
 
 		[Authorize]

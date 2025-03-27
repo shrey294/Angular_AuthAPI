@@ -30,7 +30,7 @@ namespace Angular_AuthAPI.Utility
 					Client.Authenticate(_config["EmailSettings:From"], _config["EmailSettings:Password"]);
 					Client.Send(emailMessage);
 				}
-				catch (Exception ex)
+				catch (Exception)
 				{
 					throw;
 				}
