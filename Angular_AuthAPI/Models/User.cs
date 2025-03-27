@@ -15,5 +15,7 @@ namespace Angular_AuthAPI.Models
 		public string Email { get; set; }
 		public string RefreshToken { get; set; }
 		public DateTime expirytime { get; set; }
+		public string ResentPasswordToken { get; set; }
+		public DateTime ResetPasswordExpiry {  get; set; }
 	}
 }

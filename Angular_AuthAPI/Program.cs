@@ -1,4 +1,5 @@
 using Angular_AuthAPI.Context;
+using Angular_AuthAPI.Utility;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -16,7 +17,7 @@ builder.Services.AddDbContext<AppDbContext>(option =>
 {
     option.UseSqlServer(builder.Configuration.GetConnectionString("SqlServerConnStr"));
 });
-
+builder.Services.AddScoped<IEmail,EmailService>();
 // configuration of jwt token
 builder.Services.AddAuthentication(x =>
 {

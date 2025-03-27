@@ -2,6 +2,7 @@
 using Angular_AuthAPI.Helpers;
 using Angular_AuthAPI.Models;
 using Angular_AuthAPI.Models.DTO;
+using Angular_AuthAPI.Utility;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -20,9 +21,13 @@ namespace Angular_AuthAPI.Controllers
 	public class UserController : ControllerBase
 	{
 		private readonly AppDbContext _context;
-		public UserController(AppDbContext appDbContext)
+		private readonly IConfiguration _config;
+		private readonly IEmail _email;
+		public UserController(AppDbContext appDbContext,IConfiguration configuration,IEmail email)
 		{
 			_context = appDbContext;
+			_config = configuration;
+			_email = email;
 		}
 		[HttpPost("authenticate")]
 		public async Task<IActionResult> Authenticate([FromBody] User user)
@@ -127,6 +132,49 @@ namespace Angular_AuthAPI.Controllers
 				RefreshToken = RefreshToken,
 			});
 		}
+		[HttpPost("send-reset-email/{email}")]
+		public async Task<IActionResult> SendEmail(string email)
+		{
+			var user = await _context.Users.FirstOrDefaultAsync(x=>x.Email ==  email);
+			if (user == null)
+			{
+				return NotFound(new { StatusCode = 404, Message = "Email Does not exists" });
+			}
+			else
+			{
+				var tokenbytes = RandomNumberGenerator.GetBytes(64);
+				var emailToken = Convert.ToBase64String(tokenbytes);
+				user.ResentPasswordToken = emailToken;
+				user.ResetPasswordExpiry = DateTime.Now.AddMinutes(15);
+				string from = _config["EmailSettings:From"];
+				var emailmodel = new EmailModel(email,"Reset Password",EmailBody.EmailStringBody(email,emailToken));
+				_email.sendEmail(emailmodel);
+				_context.Entry(user).State = EntityState.Modified;
+				await _context.SaveChangesAsync();
+				return Ok(new { StatusCode = 200, Message = "Email Sent" });
+			}
+		}
+		[HttpPost("Reset-password")]
+		public async Task<IActionResult> ResetPassword(ResetPasswordDTO resetPasswordDTO)
+		{
+			var newtoken = resetPasswordDTO.EmailToken.Replace("", "+");
+			var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(a=>a.Email == resetPasswordDTO.Email);
+			if (user == null)
+			{
+				return NotFound(new { StatusCode = 404, Message = "user Does not exists" });
+			}
+			var tokencode = user.ResentPasswordToken;
+			DateTime emailtokenexpiry = user.ResetPasswordExpiry;
+			if(tokencode != resetPasswordDTO.EmailToken || emailtokenexpiry < DateTime.Now)
+			{
+				return BadRequest(new {StatusCode=400,Message="Invalid Reset Link"});
+			}
+			user.Password = PasswordEncrypt.HashedPassword(resetPasswordDTO.NewPassword);
+			_context.Entry(user).State = EntityState.Modified;
+			await _context.SaveChangesAsync();
+			return Ok(new { StatusCode = 200, Message = "Password Reset Successfully" });
+		}
+
 		[Authorize]
 		[HttpGet]
 		public async Task<ActionResult<User>> GetAllUsers()
